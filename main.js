@@ -19,6 +19,7 @@ var newPageTemplate = ''; // default page template, such as '##todo work for tod
 var userDefinedFiles = [];
 var telemetryHost = 'm.reactshare.cn';
 var telemetryEndpoint = '/dailynotes/?';
+var lastFile = ''; // remember last opened file. activate it again when click app icon
 
 function getCurrentDate() {
   const date = new Date();
@@ -101,12 +102,12 @@ var openTextFile = function(fName) {
                     console.warn('创建文件失败');
                 } else {
                     console.warn('创建文件成功');
-                    shell.openPath(fileName);
+                    shellOpenPath(fileName);
                 }
             });
         } else {
             console.log('文件存在');
-            shell.openPath(fileName);
+            shellOpenPath(fileName);
         }
     }); 
   });
@@ -123,7 +124,7 @@ var hookTelemetry = function(data) {
   try {
     lastTeleReportTime = ms;
     // OS version lookup https://en.wikipedia.org/wiki/Darwin_(operating_system)#Release_history
-    var params = encodeURIComponent([os.platform(), os.machine(), os.release(), os.userInfo().username, data].join('-'));
+    var params = encodeURIComponent([os.platform(), os.machine(), os.release(), os.userInfo().username, app.getVersion(), data].join('-'));
     var req = http.get({
       hostname: telemetryHost,
       path: telemetryEndpoint + params,
@@ -138,6 +139,19 @@ var hookTelemetry = function(data) {
     });
   } catch {
     // nop
+  }
+};
+
+var shellOpenPath = function(fileName) {
+  shell.openPath(fileName);
+  lastFile = fileName;
+};
+
+var openLastOpenedFile = function() {
+  if (false && lastFile != '') {
+    shell.openPath(lastFile);
+  } else {
+    openDailyFile();
   }
 };
 
@@ -180,7 +194,7 @@ var writeAndOpenReportFile = function(fNamePrefix, content) {
                     console.warn('创建报告文件失败');
                 } else {
                     console.warn('写入报告文件成功');
-                    shell.openPath(fileName);
+                    shellOpenPath(fileName);
                 }
             });
       }); 
@@ -620,7 +634,7 @@ function formatResults(results, query) {
 
 ipcMain.on('open-file', (event, fName) => {
     var filePath = path.join(dirName, fName);
-    shell.openPath(filePath);
+    shellOpenPath(filePath);
 });
 
 // end paste
@@ -699,6 +713,14 @@ var initMenu = function(appIcon) {
   );
   menuArr.push(
     {
+      label: 'Today',
+      click: function() {
+        openDailyFile();
+      }
+    }
+  );
+  menuArr.push(
+    {
       label: 'Last Day',
       click: function() {
         openDailyFileLast();
@@ -770,7 +792,7 @@ var initMenu = function(appIcon) {
       label: 'Notes Directory',
       accelerator: 'Command+D',
       click: function() {
-        shell.openPath(dirName);
+        shellOpenPath(dirName);
       }
     }
   );
@@ -779,7 +801,7 @@ var initMenu = function(appIcon) {
       label: 'Config',
       accelerator: 'Command+C',
       click: function() {
-        shell.openPath(configName);
+        shellOpenPath(configName);
       }
     }
   );
@@ -797,7 +819,7 @@ app.on('ready', function(){
   appIcon = new Tray(iconPath);
   appIcon.setToolTip("日志保存路径：" + dirName);
   initMenu(appIcon);
-  appIcon.on('click', openDailyFile); 
+  appIcon.on('click', openDailyFile);
   fs.watch(configName,(event,filename)=>{
       if (filename && event == 'change') {
           initMenu(appIcon);
@@ -808,7 +830,7 @@ app.on('ready', function(){
 });
 
 
-app.on('activate', openDailyFile);
+app.on('activate', openLastOpenedFile);
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'drawin') {
