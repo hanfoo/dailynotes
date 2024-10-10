@@ -4,6 +4,8 @@ const path = require('path');
 const fs = require('fs')
 const os = require('os')
 const http = require('http')
+const {execFile} = require('child_process')
+
 const iconPath = path.join(__dirname, 'icon.png');
 let appIcon = null;
 let mainWindow = null;
@@ -14,8 +16,9 @@ app.allowRendererProcessReuse = true
 var dirName = path.join(app.getPath("documents"), "DailyNotes");
 var configName = path.join(app.getPath('userData'), 'config.json');
 var tempDirName = app.getPath("temp");
-var fileExtension = 'md'; // default file editor
+var fileExtension = 'md'; // default file format 
 var newPageTemplate = ''; // default page template, such as '##todo work for today'
+var customizedEditorApplication = ''; // user defined application to open the editor 
 var userDefinedFiles = [];
 var telemetryHost = 'm.reactshare.cn';
 var telemetryEndpoint = '/dailynotes/?';
@@ -142,8 +145,18 @@ var hookTelemetry = function(data) {
   }
 };
 
-var shellOpenPath = function(fileName) {
-  shell.openPath(fileName);
+var shellOpenPath = function(fileName, lineNo=0) {
+  if (lineNo > 0 && customizedEditorApplication != "") {
+    // check application type
+    if (customizedEditorApplication.indexOf('Visual\ Studio\ Code.app') > 0) {
+      // for now, only vs code supported
+      execFile(customizedEditorApplication, ["-g",  fileName + ":" + lineNo]);
+    } else {
+      shell.openPath(fileName);
+    }
+  } else {
+    shell.openPath(fileName);
+  }
   lastFile = fileName;
 };
 
@@ -531,19 +544,23 @@ var parseLabels = function(labels) {
 };
 
 function createSearchDialog() {
-    searchWindow = new BrowserWindow({
+    if (searchWindow) {
+      searchWindow.show();
+    } else {
+      searchWindow = new BrowserWindow({
         width: 900,
         height: 700,
         modal: true,
         webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false
+          nodeIntegration: true,
+          contextIsolation: false
         }
-    });
-    searchWindow.loadFile('search-dialog.html');
-    searchWindow.on('closed', () => {
-        // searchWindow = null;
-    });
+      });
+      searchWindow.loadFile('search-dialog.html');
+      searchWindow.on('closed', () => {
+        searchWindow = null;
+      });
+    }
 }
 
 // begin paste
@@ -561,54 +578,59 @@ ipcMain.on('search-files', async (event, query) => {
         // 按行分隔并处理
         const lines = content.split('\n');
         let currentTitle = '';
+        let currentTitleLineNum = 1;
         let currentLines = [];
 
-        lines.forEach(line => {
+        lines.forEach((line, index) => {
+            lineNum = index + 1
             if (line.startsWith('# ')) {
                 // 处理之前的内容
                 if (currentTitle && currentLines.length > 0) {
-                    processContent(file, currentTitle, currentLines, query, results);
+                    processContent(file, currentTitle, currentTitleLineNum, currentLines, query, results);
                 }
                 // 更新当前标题
                 currentTitle = line.substring(2).trim();
+                currentTitleLineNum = lineNum;
                 currentLines = [];
             } else {
-                currentLines.push(line);
+                currentLines.push({'content': line, 'index': lineNum});
             }
         });
 
         // 处理最后一部分内容
         if (currentTitle && currentLines.length > 0) {
-            processContent(file, currentTitle, currentLines, query, results);
+            processContent(file, currentTitle, currentTitleLineNum, currentLines, query, results);
         }
     }
 
     event.reply('search-results', formatResults(results, query));
 });
 
-function processContent(file, title, lines, query, results) {
+function processContent(file, title, titleLineNum, lines, query, results) {
     // 使用 Unicode 支持的正则表达式
     const regex = new RegExp(`(${query})`, 'giu'); // 'u' 使正则表达式支持 Unicode，'i' 使匹配不区分大小写，'g' 使匹配全局
     const matches = new Set(); // 使用 Set 来去重
 
     if (regex.test(title)) {
-        matches.add('');
+        // matches.add({content:'', index: titleLineNum});
+        matches.add({content:'', index: titleLineNum});
     }
 
     lines.forEach(line => {
-        if (regex.test(line)) {
+        if (regex.test(line.content)) {
             matches.add(line);
         }
     });
 
     if (matches.size > 0) {
-        const result = results.find(r => r.file === file && r.title === title);
+        const result = results.find(r => r.file === file && r.title === title && r.titleLineNum === titleLineNum);
         if (result) {
             result.matches.push(...matches);
         } else {
             results.push({
                 file,
                 title,
+                titleLineNum,
                 matches: Array.from(matches)
             });
         }
@@ -617,24 +639,25 @@ function processContent(file, title, lines, query, results) {
 
 function formatResults(results, query) {
     return results.map(result => {
-        const { file, title, matches } = result;
+        const { file, title, titleLineNum, matches } = result;
         
         // 对匹配结果进行格式化
         const formattedMatches = matches.map(match => {
-            return match.replace(new RegExp(`(${query})`, 'giu'), `<b style='color:#ea4335'>$1</b>`);
+            return "<a style='text-decoration:none;color:black;' href='#' onclick=\"openFile('" + result.file + "'," + match.index + ");return false;\">" + match.content.replace(new RegExp(`(${query})`, 'giu'), `<b style='color:#ea4335'>$1</b>`) + "</a>";
         }).join('<br />');
 
         return {
             file,
             title,
+            titleLineNum,
             content: formattedMatches
         };
     });
 }
 
-ipcMain.on('open-file', (event, fName) => {
+ipcMain.on('open-search-file', (event, fName, lineNo) => {
     var filePath = path.join(dirName, fName);
-    shellOpenPath(filePath);
+    shellOpenPath(filePath, lineNo);
 });
 
 // end paste
@@ -676,15 +699,29 @@ var initMenu = function(appIcon) {
         config.template = '';
         needUpgrade = true;
       }
+      if (config.application) {
+        customizedEditorApplication = config.application;
+      } else {
+        customizedEditorApplication = '';
+        config.application = '';
+        needUpgrade = true;
+      }
       fs.writeFileSync(configName, JSON.stringify(config, null, 2));
     }
   } catch {
-    const data = {}
-    labels = "#todo weekly,#todo monthly,#note weekly,#note monthly,#meeting 7 days";
-    data.labels =  labels;
-    data.writer = 'md';
-    data.template = '';
-    fs.writeFileSync(configName, JSON.stringify(data, null, 2));
+    fs.exists(configName, exists => {
+      if (!exists) {
+        const data = {}
+        labels = "#todo weekly,#todo monthly,#note weekly,#note monthly,#meeting 7 days";
+        data.labels =  labels;
+        data.writer = 'md';
+        data.template = '';
+        data.user_defined_file = '';
+        data.application = '';
+        fs.writeFileSync(configName, JSON.stringify(data, null, 2));
+      }
+    });
+    console.log("parse json file fail");
   }
   var menuArr = [];
 

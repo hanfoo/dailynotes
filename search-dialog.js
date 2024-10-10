@@ -17,7 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
 document.getElementById('query').addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
         event.preventDefault(); // 防止回车键产生默认行为
-	triggerSearch();
+	      triggerSearch();
     }
 });
 
@@ -31,8 +31,8 @@ document.getElementById('search').addEventListener('click', () => {
     triggerSearch();
 });
 
-function openFile(filePath) {
-    ipcRenderer.send('open-file', filePath);
+function openFile(filePath, lineNo) {
+    ipcRenderer.send('open-search-file', filePath, lineNo);
 }
 
 // Listen for search results from the main process
@@ -40,7 +40,7 @@ ipcRenderer.on('search-results', (event, results) => {
     const resultContainer = document.getElementById('result');
     resultContainer.innerHTML = results.map(result => `
         <div>
-            <div class="title"><strong>[<a href='#' onclick="openFile('${result.file}');return false;">${result.file}</a>] <span class='title-content'>${result.title}</span></strong></div>
+            <div class="title"><strong>[<a href='#' onclick="openFile('${result.file}', ${result.titleLineNum});return false;">${result.file}</a>] <span class='title-content'>${result.title}</span></strong></div>
             <div class="snippet">${result.content}</div>
         </div>
         <hr>
