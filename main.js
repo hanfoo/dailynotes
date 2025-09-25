@@ -8,7 +8,7 @@ const {execFile} = require('child_process')
 
 const iconPath = path.join(__dirname, 'icon.png');
 let appIcon = null;
-let mainWindow = null;
+let settingWindow = null;
 let searchWindow = null;
 
 app.allowRendererProcessReuse = true
@@ -569,7 +569,15 @@ ipcMain.on('search-files', async (event, query) => {
     const directory = path.join(app.getPath('documents'), 'DailyNotes');
     const results = [];
 
-    const files = fs.readdirSync(directory).filter(file => ((file.endsWith('.txt') || file.endsWith('.md')) && !file.startsWith('dailynotes_') && query.length > 0));
+    const files = fs.readdirSync(directory)
+        .filter(file => ((file.endsWith('.txt') || file.endsWith('.md')) && !file.startsWith('dailynotes_') && query.length > 0))
+        .map(file => {
+          const filePath = path.join(directory, file);
+          const stats = fs.statSync(filePath);
+          return { file, mtime: stats.mtime };
+        })
+        .sort((a, b) => b.mtime - a.mtime)  // 按修改时间降序
+        .map(entry => entry.file);          // 只取文件名
 
     for (const file of files) {
         const filePath = path.join(directory, file);
@@ -668,6 +676,51 @@ ipcMain.on('close-search-dialog', () => {
     }
 });
 */
+
+
+ipcMain.on('save-settings-data', (event, data) => {
+    fs.writeFileSync(configName, JSON.stringify(data, null, 2));
+});
+
+ipcMain.on('export-settings-data', (event, data) => {
+	var options = {
+		title: "Save file",
+		defaultPath : "config.json",
+		buttonLabel : "Save",
+		filters :[
+			{name: 'json', extensions: ['json']},
+			{name: 'All Files', extensions: ['*']}
+		]
+	};
+	dialog.showSaveDialog(null, options).then(({ filePath }) => {
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+	});
+});
+
+
+
+function createSettingWindow() {
+    settingWindow = new BrowserWindow({
+        width: 600,
+        height: 800,
+        webPreferences: {
+          nodeIntegration: true,  // 确保启用 Node.js 集成
+          contextIsolation: false, // 如果需要，禁用上下文隔离
+        }
+    });
+
+    settingWindow.loadFile('settings.html');
+
+    // 在窗口加载后发送配置文件路径
+    settingWindow.webContents.on('did-finish-load', () => {
+        console.log("config window load OK. set config:", configName);
+        settingWindow.webContents.send('config-settings-path', configName);
+    });
+
+    settingWindow.on('closed', () => {
+        settingWindow = null;
+    });
+}
 
 
 var initMenu = function(appIcon) {
@@ -833,6 +886,7 @@ var initMenu = function(appIcon) {
       }
     }
   );
+  /*
   menuArr.push(
     {
       label: 'Config',
@@ -842,6 +896,21 @@ var initMenu = function(appIcon) {
       }
     }
   );
+  */
+  menuArr.push(
+    {
+      label: 'Settings...',
+      accelerator: 'Command+C',
+      click: function() {
+				if (!settingWindow) {
+					createSettingWindow(); // 创建窗口
+				} else {
+					settingWindow.focus(); // 如果窗口已存在，则聚焦
+				}
+			}
+    }
+  );
+
   var contextMenu = Menu.buildFromTemplate(menuArr);
   appIcon.setContextMenu(contextMenu);
   //Menu.setApplicationMenu(Menu.buildFromTemplate([{label: 'Quit', selector: 'terminate:', }]))
@@ -867,7 +936,12 @@ app.on('ready', function(){
 });
 
 
-app.on('activate', openLastOpenedFile);
+app.on('activate', () => {
+ 		openLastOpenedFile();
+    if (settingWindow === null) {
+        createSettingWindow();
+    }
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'drawin') {
