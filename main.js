@@ -938,9 +938,6 @@ app.on('ready', function(){
 
 app.on('activate', () => {
  		openLastOpenedFile();
-    if (settingWindow === null) {
-        createSettingWindow();
-    }
 });
 
 app.on('window-all-closed', () => {
