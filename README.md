@@ -1,12 +1,15 @@
 # dailynotes
+
 ![image](https://github.com/raywill/dailynotes/assets/248295/f1c22884-52b1-44b8-ad73-bf04b408aad6)
 
-Daily notes with  unlimited capability
+Daily notes with unlimited capability
+
 - Auto start a new note every day
 - Generate weekly & monthly report automatically for '#note' & '#todo' tags.
 - You can customize tags, report peroids.
 
 # Calandar View
+
 You can easily get a summary for what you have write.
 
 ![image](https://github.com/user-attachments/assets/9998f07d-b8ca-4576-9305-956fae81b12a)
@@ -28,4 +31,3 @@ Right click the menu -> Click config -> Add your tag and intervals
 ## tips
 
 You can use `Typora` as your editor, `Alfred` as your search engine, `github` repo as your storage engine.
-
